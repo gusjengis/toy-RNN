@@ -6,9 +6,12 @@ pub struct Neuron {
 }
 
 impl Neuron {
-    pub fn new(activation_function: ActivationFunction) -> Self {
+    pub fn new(activation_function: ActivationFunction, input_size: usize) -> Self {
+        let weights = (0..input_size)
+            .map(|_| rand::random_range(-1.0..1.0))
+            .collect();
         Self {
-            weights: Vec::new(),
+            weights,
             bias: rand::random_range(-1.0..1.0),
             activation_function,
             output: 0.0,
@@ -16,16 +19,6 @@ impl Neuron {
     }
 
     pub fn compute_output(&mut self, inputs: &[f32]) {
-        if self.weights.len() == 0 {
-            //random weights
-            //
-            self.weights = (0..inputs.len())
-                .map(|_| {
-                    // 1 (inclusive) to 21 (exclusive)
-                    rand::random_range(-1.0..1.0)
-                })
-                .collect();
-        }
         let mut acc = self.bias;
         for (i, input) in inputs.iter().enumerate() {
             acc += input * self.weights[i];

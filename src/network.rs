@@ -6,19 +6,23 @@ pub struct Network {
 }
 
 impl Network {
-    pub fn new(hidden_layer_sizes: Vec<usize>, output_size: usize) -> Self {
+    pub fn new(input_size: usize, hidden_layer_sizes: Vec<usize>, output_size: usize) -> Self {
         let mut hidden_layers = Vec::new();
-        for &size in hidden_layer_sizes.iter() {
+        let mut input_size = input_size;
+        for i in 0..hidden_layer_sizes.len() {
+            if i > 0 {
+                input_size = hidden_layer_sizes[i - 1];
+            }
             hidden_layers.push(
-                (0..size)
-                    .map(|_| Neuron::new(ActivationFunction::ReLU))
+                (0..hidden_layer_sizes[i])
+                    .map(|_| Neuron::new(ActivationFunction::ReLU, input_size))
                     .collect(),
             );
         }
         Self {
             hidden_layers,
             output_layer: (0..output_size)
-                .map(|_| Neuron::new(ActivationFunction::Raw))
+                .map(|_| Neuron::new(ActivationFunction::Raw, *hidden_layer_sizes.last().unwrap()))
                 .collect(),
         }
     }
@@ -59,7 +63,9 @@ impl Network {
                 layer
                     .iter()
                     .enumerate()
-                    .map(|(neuron_index, neuron)| format!("n{} out={:.4}", neuron_index, neuron.output))
+                    .map(|(neuron_index, neuron)| {
+                        format!("n{} out={:.4}", neuron_index, neuron.output)
+                    })
                     .collect(),
             ));
         }

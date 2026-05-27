@@ -5,49 +5,21 @@ use std::{
     fs,
 };
 
+use crate::network::Network;
+
 fn main() {
-    // training
-    // load data
-    // feed data to rnn
-    // compute loss
-    // backprop loss
-    // repeat until total loss is low enough
-    //
-    // running
-    // load weights
-    // accept input
-    // feed input to rnn
-    // collect output
-    // loop feeding and collecting for as many characters as I want to predict
-    let file_path = "data/tinystories_sample.txt";
-
-    // Reads the entire file into a String
-    let content = fs::read_to_string(file_path).expect("Should have been able to read the file");
-
-    let mut character_set: HashSet<char, _> = HashSet::new();
-    for c in content.chars() {
-        character_set.insert(c);
-    }
-
+    let data = get_data("data/tinystories_sample.txt");
+    let character_set = get_character_set(&data);
     let mut character_vector = character_set.iter().collect::<Vec<_>>();
     character_vector.sort();
-    println!("Character set: {:?}", character_vector);
-    println!("One-Hot length: {:?}", character_vector.len());
-
     // set up map from character to one-hot input vector
-    let mut one_hot_map: HashMap<char, Vec<f32>> = HashMap::new();
-    for (i, c) in character_vector.iter().enumerate() {
-        let character = *c;
-        one_hot_map.insert(*character, vec![0.0; character_vector.len()]);
-        one_hot_map.get_mut(c).unwrap()[i] = 1.0;
-    }
-
-    let mut predicted_char = 'a';
-    // let mut prediction = String::from(predicted_char);
-
-    let mut network = network::Network::new(vec![10, 10, 10, 10], character_vector.len());
-    network.print_diagram(character_vector.len());
-    println!("\n\n\n\n\n\n\n\n");
+    let one_hot_length = character_vector.len();
+    let one_hot_map = get_one_hot_map(&character_vector);
+    // initialize network
+    let mut network = network::Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
+    // print diagram
+    // network.print_diagram(character_vector.len());
+    println!("\n");
     for character in character_vector.iter() {
         let input = one_hot_map.get(&character).unwrap().as_slice();
         // println!("Input: {:?}", input);
@@ -65,9 +37,10 @@ fn main() {
             }
         }
 
-        // println!(" max: {:?}", max);
-        predicted_char = *character_vector[max_index];
-        // prediction.push(predicted_char);
+        // this is wrong, don't have a target, need to set up training first
+        let loss = one_hot_cross_entropy(output[max_index]);
+
+        let predicted_char = *character_vector[max_index];
         println!("{} -> ({:?})", character, predicted_char);
     }
     // println!("Prediction: {:?}", prediction);
@@ -76,6 +49,36 @@ fn main() {
     //     let output = network.feed_forward(input);
 }
 
+fn get_character_set(data: &str) -> HashSet<char> {
+    let mut character_set: HashSet<char, _> = HashSet::new();
+    for c in data.chars() {
+        character_set.insert(c);
+    }
+    return character_set;
+}
+
+fn get_data(file_path: &str) -> String {
+    fs::read_to_string(file_path).expect("Should have been able to read the file")
+}
+
+fn get_one_hot_map(character_vector: &Vec<&char>) -> HashMap<char, Vec<f32>> {
+    let mut one_hot_map: HashMap<char, Vec<f32>> = HashMap::new();
+    for (i, c) in character_vector.iter().enumerate() {
+        let character = *c;
+        one_hot_map.insert(*character, vec![0.0; character_vector.len()]);
+        one_hot_map.get_mut(c).unwrap()[i] = 1.0;
+    }
+    return one_hot_map;
+}
+
+fn training(
+    data: String,
+    network: &mut Network,
+    character_vector: &[char],
+    character_set: &HashSet<char>,
+    one_hot_map: &HashMap<char, Vec<f32>>,
+) {
+}
 fn softmax(x: &[f32]) -> Vec<f32> {
     let mut exp_x = Vec::new();
     for i in x.iter() {
@@ -84,4 +87,16 @@ fn softmax(x: &[f32]) -> Vec<f32> {
     let sum = exp_x.iter().sum::<f32>();
     exp_x.iter_mut().for_each(|x| *x /= sum);
     return exp_x;
+}
+
+fn one_hot_cross_entropy(target_output: f32) -> f32 {
+    -1.0 * target_output.ln()
+}
+
+fn cross_entropy(output: &[f32], target: &[f32]) -> f32 {
+    let mut loss = 0.0;
+    for (output, target) in output.iter().zip(target.iter()) {
+        loss += -target * output.ln();
+    }
+    return loss;
 }
