@@ -172,6 +172,7 @@ struct MsdfParams {
 }
 
 pub struct TextRenderer {
+    font_atlas: FontAtlas,
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     glyph_buffer: wgpu::Buffer,
@@ -276,6 +277,7 @@ impl TextRenderer {
         };
 
         Ok(Self {
+            font_atlas,
             pipeline,
             bind_group,
             glyph_buffer,
@@ -285,6 +287,25 @@ impl TextRenderer {
             _atlas_sampler: atlas_sampler,
             _params_buffer: params_buffer,
         })
+    }
+
+    pub fn replace_labels(&mut self, device: &wgpu::Device, labels: &[TextLabel]) {
+        let glyph_instances = self.font_atlas.build_glyph_instances(labels);
+        self.glyph_buffer = if glyph_instances.is_empty() {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Empty MSDF Glyph Instance Buffer"),
+                size: 1,
+                usage: wgpu::BufferUsages::VERTEX,
+                mapped_at_creation: false,
+            })
+        } else {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("MSDF Glyph Instance Buffer"),
+                contents: bytemuck::cast_slice(&glyph_instances),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            })
+        };
+        self.glyph_count = glyph_instances.len() as u32;
     }
 
     pub fn render<'pass>(

@@ -17,11 +17,11 @@ fn main() {
     let one_hot_map = get_one_hot_map(&character_vector);
     let input = one_hot_map
         .get(&character_vector[0])
-        .expect("character vector should contain at least one character");
-    let mut network = Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
-    network.feed_forward(input);
+        .expect("character vector should contain at least one character")
+        .clone();
+    let network = Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
 
-    if let Err(error) = render::run(&network, input, &character_vector) {
+    if let Err(error) = render::run(network, input, character_vector) {
         eprintln!("Renderer exited with an error: {error}");
     }
 }

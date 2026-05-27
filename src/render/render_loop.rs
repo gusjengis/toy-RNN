@@ -4,6 +4,7 @@ use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::WindowId,
 };
 
@@ -11,35 +12,57 @@ use crate::network::Network;
 
 use super::{pipeline::GpuState, window::AppWindow};
 
-struct NetworkViewer<'network> {
-    network: &'network Network,
-    inputs: &'network [f32],
-    character_labels: &'network [char],
+struct NetworkViewer {
+    network: Network,
+    inputs: Vec<f32>,
+    character_labels: Vec<char>,
+    animation_step: usize,
     window: Option<AppWindow>,
     gpu: Option<GpuState>,
     is_panning: bool,
     last_cursor_position: Option<PhysicalPosition<f64>>,
 }
 
-impl<'network> NetworkViewer<'network> {
-    fn new(
-        network: &'network Network,
-        inputs: &'network [f32],
-        character_labels: &'network [char],
-    ) -> Self {
+impl NetworkViewer {
+    fn new(network: Network, inputs: Vec<f32>, character_labels: Vec<char>) -> Self {
         Self {
             network,
             inputs,
             character_labels,
+            animation_step: 0,
             window: None,
             gpu: None,
             is_panning: false,
             last_cursor_position: None,
         }
     }
+
+    fn advance_animation(&mut self) {
+        if self.animation_step == 0 {
+            self.network.clear_outputs();
+        } else {
+            self.network
+                .compute_layer(self.animation_step - 1, &self.inputs);
+        }
+
+        let step_count = self.network.layer_count() + 1;
+        self.animation_step = (self.animation_step + 1) % step_count;
+    }
+
+    fn reset_with_random_input(&mut self) {
+        if self.inputs.is_empty() {
+            return;
+        }
+
+        self.inputs.fill(0.0);
+        let input_index = rand::random_range(0..self.inputs.len());
+        self.inputs[input_index] = 1.0;
+        self.network.clear_outputs();
+        self.animation_step = 0;
+    }
 }
 
-impl ApplicationHandler for NetworkViewer<'_> {
+impl ApplicationHandler for NetworkViewer {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -57,9 +80,9 @@ impl ApplicationHandler for NetworkViewer<'_> {
         let gpu = match pollster::block_on(GpuState::new(
             &window.window,
             window.size,
-            self.network,
-            self.inputs,
-            self.character_labels,
+            &self.network,
+            &self.inputs,
+            &self.character_labels,
         )) {
             Ok(gpu) => gpu,
             Err(error) => {
@@ -136,14 +159,30 @@ impl ApplicationHandler for NetworkViewer<'_> {
                     window.window.request_redraw();
                 }
             }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == ElementState::Pressed
+                    && !event.repeat
+                    && matches!(
+                        event.physical_key,
+                        PhysicalKey::Code(KeyCode::Space | KeyCode::KeyR)
+                    )
+                {
+                    window.window.request_redraw();
+                    self.reset_with_random_input();
+                }
+            }
             WindowEvent::RedrawRequested => {
+                let window_size = window.size;
+                self.advance_animation();
+
                 let Some(gpu) = self.gpu.as_mut() else {
                     return;
                 };
+                gpu.refresh_network(&self.network, &self.inputs, &self.character_labels);
 
                 match gpu.render() {
                     Ok(()) => {}
-                    Err(SurfaceError::Lost | SurfaceError::Outdated) => gpu.resize(window.size),
+                    Err(SurfaceError::Lost | SurfaceError::Outdated) => gpu.resize(window_size),
                     Err(SurfaceError::OutOfMemory) => event_loop.exit(),
                     Err(error) => eprintln!("Render error: {error}"),
                 }
@@ -160,9 +199,9 @@ impl ApplicationHandler for NetworkViewer<'_> {
 }
 
 pub fn run(
-    network: &Network,
-    inputs: &[f32],
-    character_labels: &[char],
+    network: Network,
+    inputs: Vec<f32>,
+    character_labels: Vec<char>,
 ) -> Result<(), winit::error::EventLoopError> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);

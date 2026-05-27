@@ -46,6 +46,52 @@ impl Network {
         return self.output_layer.iter().map(|n| n.output).collect();
     }
 
+    pub fn layer_count(&self) -> usize {
+        self.hidden_layers.len() + 1
+    }
+
+    pub fn clear_outputs(&mut self) {
+        for layer in self.hidden_layers.iter_mut() {
+            for neuron in layer.iter_mut() {
+                neuron.output = 0.0;
+            }
+        }
+
+        for neuron in self.output_layer.iter_mut() {
+            neuron.output = 0.0;
+        }
+    }
+
+    pub fn compute_layer(&mut self, layer_index: usize, inputs: &[f32]) {
+        if layer_index < self.hidden_layers.len() {
+            let layer_inputs = if layer_index == 0 {
+                inputs.to_vec()
+            } else {
+                self.hidden_layers[layer_index - 1]
+                    .iter()
+                    .map(|neuron| neuron.output)
+                    .collect()
+            };
+
+            for neuron in self.hidden_layers[layer_index].iter_mut() {
+                neuron.compute_output(&layer_inputs);
+            }
+            return;
+        }
+
+        if layer_index == self.hidden_layers.len() {
+            let layer_inputs = self
+                .hidden_layers
+                .last()
+                .map(|layer| layer.iter().map(|neuron| neuron.output).collect::<Vec<_>>())
+                .unwrap_or_else(|| inputs.to_vec());
+
+            for neuron in self.output_layer.iter_mut() {
+                neuron.compute_output(&layer_inputs);
+            }
+        }
+    }
+
     pub fn neuron_layers(&self) -> impl Iterator<Item = &[Neuron]> {
         self.hidden_layers
             .iter()

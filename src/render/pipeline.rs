@@ -399,6 +399,33 @@ impl GpuState {
         self.write_camera();
     }
 
+    pub fn refresh_network(
+        &mut self,
+        network: &Network,
+        inputs: &[f32],
+        character_labels: &[char],
+    ) {
+        let neuron_instances = build_neuron_instances(network, inputs.len());
+        self.queue.write_buffer(
+            &self.neuron_buffer,
+            0,
+            bytemuck::cast_slice(&neuron_instances),
+        );
+        self.neuron_count = neuron_instances.len() as u32;
+
+        let input_instances = build_input_instances(network, inputs);
+        self.queue.write_buffer(
+            &self.input_buffer,
+            0,
+            bytemuck::cast_slice(&input_instances),
+        );
+        self.input_count = input_instances.len() as u32;
+
+        let text_labels = build_text_labels(network, inputs, character_labels);
+        self.text_renderer
+            .replace_labels(&self.device, &text_labels);
+    }
+
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let frame = self.surface.get_current_texture()?;
         let view = frame
