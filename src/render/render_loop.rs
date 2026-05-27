@@ -13,6 +13,7 @@ use super::{pipeline::GpuState, window::AppWindow};
 
 struct NetworkViewer<'network> {
     network: &'network Network,
+    inputs: &'network [f32],
     window: Option<AppWindow>,
     gpu: Option<GpuState>,
     is_panning: bool,
@@ -20,9 +21,10 @@ struct NetworkViewer<'network> {
 }
 
 impl<'network> NetworkViewer<'network> {
-    fn new(network: &'network Network) -> Self {
+    fn new(network: &'network Network, inputs: &'network [f32]) -> Self {
         Self {
             network,
+            inputs,
             window: None,
             gpu: None,
             is_panning: false,
@@ -46,8 +48,12 @@ impl ApplicationHandler for NetworkViewer<'_> {
             }
         };
 
-        let gpu = match pollster::block_on(GpuState::new(&window.window, window.size, self.network))
-        {
+        let gpu = match pollster::block_on(GpuState::new(
+            &window.window,
+            window.size,
+            self.network,
+            self.inputs,
+        )) {
             Ok(gpu) => gpu,
             Err(error) => {
                 eprintln!("Failed to initialize GPU renderer: {error}");
@@ -146,10 +152,10 @@ impl ApplicationHandler for NetworkViewer<'_> {
     }
 }
 
-pub fn run(network: &Network) -> Result<(), winit::error::EventLoopError> {
+pub fn run(network: &Network, inputs: &[f32]) -> Result<(), winit::error::EventLoopError> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = NetworkViewer::new(network);
+    let mut app = NetworkViewer::new(network, inputs);
     event_loop.run_app(&mut app)
 }

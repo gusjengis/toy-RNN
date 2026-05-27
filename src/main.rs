@@ -11,10 +11,17 @@ use crate::network::Network;
 fn main() {
     let data = get_data("data/tinystories_sample.txt");
     let character_set = get_character_set(&data);
-    let one_hot_length = character_set.len();
-    let network = Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
+    let mut character_vector = character_set.iter().collect::<Vec<_>>();
+    character_vector.sort();
+    let one_hot_length = character_vector.len();
+    let one_hot_map = get_one_hot_map(&character_vector);
+    let input = one_hot_map
+        .get(character_vector[0])
+        .expect("character vector should contain at least one character");
+    let mut network = Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
+    network.feed_forward(input);
 
-    if let Err(error) = render::run(&network) {
+    if let Err(error) = render::run(&network, input) {
         eprintln!("Renderer exited with an error: {error}");
     }
 }

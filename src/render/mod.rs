@@ -4,6 +4,6 @@ pub mod window;
 
 use crate::network::Network;
 
-pub fn run(network: &Network) -> Result<(), winit::error::EventLoopError> {
-    render_loop::run(network)
+pub fn run(network: &Network, inputs: &[f32]) -> Result<(), winit::error::EventLoopError> {
+    render_loop::run(network, inputs)
 }

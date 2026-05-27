@@ -8,10 +8,11 @@ use crate::{network::Network, neuron::Neuron};
 
 type RenderResult<T> = Result<T, Box<dyn Error>>;
 
-const BASE_LAYER_SPACING: f32 = 220.0;
-const CONNECTION_SPACING_SCALE: f32 = 12.0;
+const BASE_LAYER_SPACING: f32 = 340.0;
+const CONNECTION_SPACING_SCALE: f32 = 18.0;
 const NEURON_SPACING: f32 = 92.0;
 const NEURON_RADIUS: f32 = 28.0;
+const INPUT_HALF_SIZE: f32 = 26.0;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 8.0;
 const MIN_CONNECTION_THICKNESS: f32 = 1.0;
@@ -94,6 +95,40 @@ impl ConnectionInstance {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
+struct InputInstance {
+    position: [f32; 2],
+    half_size: f32,
+    value: f32,
+}
+
+impl InputInstance {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InputInstance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32,
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 struct CameraUniform {
     pan_and_viewport: [f32; 4],
     zoom_and_padding: [f32; 4],
@@ -154,6 +189,9 @@ pub struct GpuState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
+    input_pipeline: wgpu::RenderPipeline,
+    input_buffer: wgpu::Buffer,
+    input_count: u32,
     neuron_pipeline: wgpu::RenderPipeline,
     neuron_buffer: wgpu::Buffer,
     neuron_count: u32,
@@ -171,6 +209,7 @@ impl GpuState {
         window: &Window,
         size: PhysicalSize<u32>,
         network: &Network,
+        inputs: &[f32],
     ) -> RenderResult<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -263,15 +302,23 @@ impl GpuState {
 
         let neuron_pipeline =
             create_neuron_pipeline(&device, config.format, &camera_bind_group_layout);
-        let neuron_instances = build_neuron_instances(network);
+        let neuron_instances = build_neuron_instances(network, inputs.len());
         let neuron_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Neuron Instance Buffer"),
             contents: bytemuck::cast_slice(&neuron_instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+        let input_pipeline =
+            create_input_pipeline(&device, config.format, &camera_bind_group_layout);
+        let input_instances = build_input_instances(network, inputs);
+        let input_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Input Instance Buffer"),
+            contents: bytemuck::cast_slice(&input_instances),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
         let connection_pipeline =
             create_connection_pipeline(&device, config.format, &camera_bind_group_layout);
-        let connection_instances = build_connection_instances(network);
+        let connection_instances = build_connection_instances(network, inputs.len());
         let connection_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Connection Instance Buffer"),
             contents: bytemuck::cast_slice(&connection_instances),
@@ -292,6 +339,9 @@ impl GpuState {
             queue,
             config,
             size,
+            input_pipeline,
+            input_buffer,
+            input_count: input_instances.len() as u32,
             neuron_pipeline,
             neuron_buffer,
             neuron_count: neuron_instances.len() as u32,
@@ -361,6 +411,11 @@ impl GpuState {
             render_pass.set_vertex_buffer(0, self.connection_buffer.slice(..));
             render_pass.draw(0..6, 0..self.connection_count);
 
+            render_pass.set_pipeline(&self.input_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.input_buffer.slice(..));
+            render_pass.draw(0..6, 0..self.input_count);
+
             render_pass.set_pipeline(&self.neuron_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.neuron_buffer.slice(..));
@@ -382,13 +437,13 @@ impl GpuState {
     }
 }
 
-fn build_neuron_instances(network: &Network) -> Vec<NeuronInstance> {
+fn build_neuron_instances(network: &Network, input_count: usize) -> Vec<NeuronInstance> {
     let layers = network.neuron_layers().collect::<Vec<_>>();
-    let layer_x_positions = layer_x_positions(&layers);
+    let layer_x_positions = layer_x_positions(input_count, &layers);
     let mut instances = Vec::new();
 
     for (layer_index, layer) in layers.iter().enumerate() {
-        let x = layer_x_positions[layer_index];
+        let x = layer_x_positions[layer_index + 1];
         for (neuron_index, neuron) in layer.iter().enumerate() {
             let y = -centered_position(neuron_index, layer.len(), NEURON_SPACING);
             instances.push(NeuronInstance {
@@ -402,17 +457,54 @@ fn build_neuron_instances(network: &Network) -> Vec<NeuronInstance> {
     instances
 }
 
-fn build_connection_instances(network: &Network) -> Vec<ConnectionInstance> {
+fn build_input_instances(network: &Network, inputs: &[f32]) -> Vec<InputInstance> {
+    let layers = network.neuron_layers().collect::<Vec<_>>();
+    let layer_x_positions = layer_x_positions(inputs.len(), &layers);
+    let x = layer_x_positions[0];
+
+    inputs
+        .iter()
+        .enumerate()
+        .map(|(input_index, input)| InputInstance {
+            position: [
+                x,
+                -centered_position(input_index, inputs.len(), NEURON_SPACING),
+            ],
+            half_size: INPUT_HALF_SIZE,
+            value: input.clamp(0.0, 1.0),
+        })
+        .collect()
+}
+
+fn build_connection_instances(network: &Network, input_count: usize) -> Vec<ConnectionInstance> {
     let layers = network.neuron_layers().collect::<Vec<_>>();
     let layer_count = layers.len();
-    let layer_x_positions = layer_x_positions(&layers);
+    let layer_x_positions = layer_x_positions(input_count, &layers);
     let mut instances = Vec::new();
+
+    if let Some(first_layer) = layers.first() {
+        let start_x = layer_x_positions[0];
+        let end_x = layer_x_positions[1];
+
+        for (to_index, to_neuron) in first_layer.iter().enumerate() {
+            let end_y = -centered_position(to_index, first_layer.len(), NEURON_SPACING);
+
+            for (from_index, weight) in to_neuron.weights().iter().take(input_count).enumerate() {
+                let start_y = -centered_position(from_index, input_count, NEURON_SPACING);
+                instances.push(connection_instance(
+                    [start_x + INPUT_HALF_SIZE, start_y],
+                    [end_x - NEURON_RADIUS, end_y],
+                    *weight,
+                ));
+            }
+        }
+    }
 
     for layer_index in 1..layer_count {
         let previous_layer = layers[layer_index - 1];
         let current_layer = layers[layer_index];
-        let start_x = layer_x_positions[layer_index - 1];
-        let end_x = layer_x_positions[layer_index];
+        let start_x = layer_x_positions[layer_index];
+        let end_x = layer_x_positions[layer_index + 1];
 
         for (to_index, to_neuron) in current_layer.iter().enumerate() {
             let end_y = -centered_position(to_index, current_layer.len(), NEURON_SPACING);
@@ -424,16 +516,11 @@ fn build_connection_instances(network: &Network) -> Vec<ConnectionInstance> {
                 .enumerate()
             {
                 let start_y = -centered_position(from_index, previous_layer.len(), NEURON_SPACING);
-                let magnitude = weight.abs().min(1.0);
-                let thickness = MIN_CONNECTION_THICKNESS
-                    + magnitude * (MAX_CONNECTION_THICKNESS - MIN_CONNECTION_THICKNESS);
-
-                instances.push(ConnectionInstance {
-                    start: [start_x + NEURON_RADIUS, start_y],
-                    end: [end_x - NEURON_RADIUS, end_y],
-                    thickness,
-                    weight: *weight,
-                });
+                instances.push(connection_instance(
+                    [start_x + NEURON_RADIUS, start_y],
+                    [end_x - NEURON_RADIUS, end_y],
+                    *weight,
+                ));
             }
         }
     }
@@ -441,16 +528,33 @@ fn build_connection_instances(network: &Network) -> Vec<ConnectionInstance> {
     instances
 }
 
-fn layer_x_positions(layers: &[&[Neuron]]) -> Vec<f32> {
-    if layers.is_empty() {
+fn connection_instance(start: [f32; 2], end: [f32; 2], weight: f32) -> ConnectionInstance {
+    let magnitude = weight.abs().min(1.0);
+    let thickness = MIN_CONNECTION_THICKNESS
+        + magnitude * (MAX_CONNECTION_THICKNESS - MIN_CONNECTION_THICKNESS);
+
+    ConnectionInstance {
+        start,
+        end,
+        thickness,
+        weight,
+    }
+}
+
+fn layer_x_positions(input_count: usize, layers: &[&[Neuron]]) -> Vec<f32> {
+    if layers.is_empty() && input_count == 0 {
         return Vec::new();
     }
 
-    let mut positions = Vec::with_capacity(layers.len());
+    let mut layer_sizes = Vec::with_capacity(layers.len() + 1);
+    layer_sizes.push(input_count);
+    layer_sizes.extend(layers.iter().map(|layer| layer.len()));
+
+    let mut positions = Vec::with_capacity(layer_sizes.len());
     positions.push(0.0);
 
-    for layer_index in 1..layers.len() {
-        let connection_count = layers[layer_index - 1].len() * layers[layer_index].len();
+    for layer_index in 1..layer_sizes.len() {
+        let connection_count = layer_sizes[layer_index - 1] * layer_sizes[layer_index];
         let gap = BASE_LAYER_SPACING + (connection_count as f32).sqrt() * CONNECTION_SPACING_SCALE;
         positions.push(positions[layer_index - 1] + gap);
     }
@@ -494,6 +598,57 @@ fn create_neuron_pipeline(
             module: &shader,
             entry_point: Some("vs_main"),
             buffers: &[NeuronInstance::desc()],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: surface_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
+fn create_input_pipeline(
+    device: &wgpu::Device,
+    surface_format: wgpu::TextureFormat,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Input Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/input.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Input Pipeline Layout"),
+        bind_group_layouts: &[camera_bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Input Render Pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[InputInstance::desc()],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
