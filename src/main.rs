@@ -19,7 +19,7 @@ fn main() {
         .get(&character_vector[0])
         .expect("character vector should contain at least one character")
         .clone();
-    let network = Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
+    let network = Network::new(one_hot_length, vec![100, 100, 100, 100], one_hot_length);
 
     if let Err(error) = render::run(network, input, character_vector) {
         eprintln!("Renderer exited with an error: {error}");

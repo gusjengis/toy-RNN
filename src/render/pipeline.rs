@@ -68,6 +68,7 @@ struct ConnectionInstance {
     end: [f32; 2],
     thickness: f32,
     weight: f32,
+    contribution: f32,
 }
 
 impl ConnectionInstance {
@@ -95,6 +96,12 @@ impl ConnectionInstance {
                     offset: (std::mem::size_of::<[f32; 4]>() + std::mem::size_of::<f32>())
                         as wgpu::BufferAddress,
                     shader_location: 3,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 4]>() + std::mem::size_of::<[f32; 2]>())
+                        as wgpu::BufferAddress,
+                    shader_location: 4,
                     format: wgpu::VertexFormat::Float32,
                 },
             ],
@@ -329,7 +336,7 @@ impl GpuState {
         });
         let connection_pipeline =
             create_connection_pipeline(&device, config.format, &camera_bind_group_layout);
-        let connection_instances = build_connection_instances(network, inputs.len());
+        let connection_instances = build_connection_instances(network, inputs);
         let connection_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Connection Instance Buffer"),
             contents: bytemuck::cast_slice(&connection_instances),
@@ -420,6 +427,14 @@ impl GpuState {
             bytemuck::cast_slice(&input_instances),
         );
         self.input_count = input_instances.len() as u32;
+
+        let connection_instances = build_connection_instances(network, inputs);
+        self.queue.write_buffer(
+            &self.connection_buffer,
+            0,
+            bytemuck::cast_slice(&connection_instances),
+        );
+        self.connection_count = connection_instances.len() as u32;
 
         let text_labels = build_text_labels(network, inputs, character_labels);
         self.text_renderer
@@ -526,9 +541,10 @@ fn build_input_instances(network: &Network, inputs: &[f32]) -> Vec<InputInstance
         .collect()
 }
 
-fn build_connection_instances(network: &Network, input_count: usize) -> Vec<ConnectionInstance> {
+fn build_connection_instances(network: &Network, inputs: &[f32]) -> Vec<ConnectionInstance> {
     let layers = network.neuron_layers().collect::<Vec<_>>();
     let layer_count = layers.len();
+    let input_count = inputs.len();
     let layer_x_positions = layer_x_positions(input_count, &layers);
     let mut instances = Vec::new();
 
@@ -541,10 +557,12 @@ fn build_connection_instances(network: &Network, input_count: usize) -> Vec<Conn
 
             for (from_index, weight) in to_neuron.weights().iter().take(input_count).enumerate() {
                 let start_y = -centered_position(from_index, input_count, NEURON_SPACING);
+                let contribution = inputs[from_index] * *weight;
                 instances.push(connection_instance(
                     [start_x + INPUT_HALF_SIZE, start_y],
                     [end_x - NEURON_RADIUS, end_y],
                     *weight,
+                    contribution,
                 ));
             }
         }
@@ -566,10 +584,12 @@ fn build_connection_instances(network: &Network, input_count: usize) -> Vec<Conn
                 .enumerate()
             {
                 let start_y = -centered_position(from_index, previous_layer.len(), NEURON_SPACING);
+                let contribution = previous_layer[from_index].output * *weight;
                 instances.push(connection_instance(
                     [start_x + NEURON_RADIUS, start_y],
                     [end_x - NEURON_RADIUS, end_y],
                     *weight,
+                    contribution,
                 ));
             }
         }
@@ -697,7 +717,12 @@ fn format_value(value: f32) -> String {
     }
 }
 
-fn connection_instance(start: [f32; 2], end: [f32; 2], weight: f32) -> ConnectionInstance {
+fn connection_instance(
+    start: [f32; 2],
+    end: [f32; 2],
+    weight: f32,
+    contribution: f32,
+) -> ConnectionInstance {
     let magnitude = weight.abs().min(1.0);
     let thickness = MIN_CONNECTION_THICKNESS
         + magnitude * (MAX_CONNECTION_THICKNESS - MIN_CONNECTION_THICKNESS);
@@ -707,6 +732,7 @@ fn connection_instance(start: [f32; 2], end: [f32; 2], weight: f32) -> Connectio
         end,
         thickness,
         weight,
+        contribution,
     }
 }
 

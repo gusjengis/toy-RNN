@@ -12,11 +12,16 @@ use crate::network::Network;
 
 use super::{pipeline::GpuState, window::AppWindow};
 
+const DEFAULT_FRAMES_PER_ANIMATION_STEP: usize = 10;
+const MIN_FRAMES_PER_ANIMATION_STEP: usize = 1;
+
 struct NetworkViewer {
     network: Network,
     inputs: Vec<f32>,
     character_labels: Vec<char>,
     animation_step: usize,
+    frames_per_animation_step: usize,
+    frames_until_next_step: usize,
     window: Option<AppWindow>,
     gpu: Option<GpuState>,
     is_panning: bool,
@@ -30,6 +35,8 @@ impl NetworkViewer {
             inputs,
             character_labels,
             animation_step: 0,
+            frames_per_animation_step: DEFAULT_FRAMES_PER_ANIMATION_STEP,
+            frames_until_next_step: 0,
             window: None,
             gpu: None,
             is_panning: false,
@@ -49,6 +56,37 @@ impl NetworkViewer {
         self.animation_step = (self.animation_step + 1) % step_count;
     }
 
+    fn tick_animation(&mut self) {
+        if self.frames_until_next_step == 0 {
+            self.advance_animation();
+            self.frames_until_next_step = self.frames_per_animation_step.saturating_sub(1);
+        } else {
+            self.frames_until_next_step -= 1;
+        }
+    }
+
+    fn increase_animation_delay(&mut self) {
+        self.frames_per_animation_step += 1;
+        eprintln!(
+            "Animation delay: {} frames per step",
+            self.frames_per_animation_step
+        );
+    }
+
+    fn decrease_animation_delay(&mut self) {
+        self.frames_per_animation_step = self
+            .frames_per_animation_step
+            .saturating_sub(1)
+            .max(MIN_FRAMES_PER_ANIMATION_STEP);
+        self.frames_until_next_step = self
+            .frames_until_next_step
+            .min(self.frames_per_animation_step.saturating_sub(1));
+        eprintln!(
+            "Animation delay: {} frames per step",
+            self.frames_per_animation_step
+        );
+    }
+
     fn reset_with_random_input(&mut self) {
         if self.inputs.is_empty() {
             return;
@@ -59,6 +97,7 @@ impl NetworkViewer {
         self.inputs[input_index] = 1.0;
         self.network.clear_outputs();
         self.animation_step = 0;
+        self.frames_until_next_step = 0;
     }
 }
 
@@ -160,20 +199,25 @@ impl ApplicationHandler for NetworkViewer {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed
-                    && !event.repeat
-                    && matches!(
-                        event.physical_key,
-                        PhysicalKey::Code(KeyCode::Space | KeyCode::KeyR)
-                    )
-                {
-                    window.window.request_redraw();
-                    self.reset_with_random_input();
+                if event.state == ElementState::Pressed && !event.repeat {
+                    match event.physical_key {
+                        PhysicalKey::Code(KeyCode::Space | KeyCode::KeyR) => {
+                            window.window.request_redraw();
+                            self.reset_with_random_input();
+                        }
+                        PhysicalKey::Code(KeyCode::Equal | KeyCode::NumpadAdd) => {
+                            self.increase_animation_delay();
+                        }
+                        PhysicalKey::Code(KeyCode::Minus | KeyCode::NumpadSubtract) => {
+                            self.decrease_animation_delay();
+                        }
+                        _ => {}
+                    }
                 }
             }
             WindowEvent::RedrawRequested => {
                 let window_size = window.size;
-                self.advance_animation();
+                self.tick_animation();
 
                 let Some(gpu) = self.gpu.as_mut() else {
                     return;
