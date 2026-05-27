@@ -52,11 +52,8 @@ fn main() {
         let input = one_hot_map.get(&character).unwrap().as_slice();
         // println!("Input: {:?}", input);
         let mut output = network.feed_forward(input);
-        // normalize output
-        // let sum = output.iter().sum::<f32>();
-        // output.iter_mut().for_each(|x| *x /= sum);
-
-        // println!("Output: {:?}", output);
+        // convert output to a probability distribution
+        let output = softmax(&output);
 
         // find max output
         let mut max = f32::MIN;
@@ -77,4 +74,14 @@ fn main() {
     // for character in character_vector.iter() {
     //     let input = one_hot_map.get(character).unwrap().as_slice();
     //     let output = network.feed_forward(input);
+}
+
+fn softmax(x: &[f32]) -> Vec<f32> {
+    let mut exp_x = Vec::new();
+    for i in x.iter() {
+        exp_x.push(f32::exp(*i));
+    }
+    let sum = exp_x.iter().sum::<f32>();
+    exp_x.iter_mut().for_each(|x| *x /= sum);
+    return exp_x;
 }
