@@ -99,14 +99,6 @@ fn get_one_hot_map(character_vector: &[char]) -> HashMap<char, Vec<f32>> {
     return one_hot_map;
 }
 
-fn training(
-    data: String,
-    network: &mut Network,
-    character_vector: &[char],
-    character_set: &HashSet<char>,
-    one_hot_map: &HashMap<char, Vec<f32>>,
-) {
-}
 fn softmax(x: &[f32]) -> Vec<f32> {
     let mut exp_x = Vec::new();
     for i in x.iter() {
