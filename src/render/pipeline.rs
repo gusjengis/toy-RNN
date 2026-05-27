@@ -712,21 +712,7 @@ fn build_text_labels(
             let has_output = output_layer.iter().any(|neuron| neuron.output != 0.0);
             let output_x = layer_x_positions[layer_x_positions.len() - 1];
             let output_text_left_edge = output_x + NEURON_RADIUS + HUGE_CHARACTER_SIDE_GAP;
-            let top_y = -centered_position(0, output_layer.len(), NEURON_SPACING)
-                + NEURON_RADIUS
-                + TEXT_SUMMARY_FONT_SIZE
-                + TEXT_LABEL_GAP;
-            let prediction = character_labels
-                .get(prediction_index)
-                .map(|character| character_label(*character))
-                .unwrap_or_else(|| format!("y{prediction_index}"));
 
-            labels.push(TextLabel::center(
-                format!("Predicted: {prediction}"),
-                [output_x, top_y],
-                TEXT_SUMMARY_FONT_SIZE,
-                TEXT_ACCENT_COLOR,
-            ));
             if has_output {
                 let mut ranked_predictions = output_percentages
                     .iter()
