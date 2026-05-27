@@ -11,17 +11,17 @@ use crate::network::Network;
 fn main() {
     let data = get_data("data/tinystories_sample.txt");
     let character_set = get_character_set(&data);
-    let mut character_vector = character_set.iter().collect::<Vec<_>>();
-    character_vector.sort();
+    let mut character_vector = character_set.into_iter().collect::<Vec<_>>();
+    character_vector.sort_unstable();
     let one_hot_length = character_vector.len();
     let one_hot_map = get_one_hot_map(&character_vector);
     let input = one_hot_map
-        .get(character_vector[0])
+        .get(&character_vector[0])
         .expect("character vector should contain at least one character");
     let mut network = Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
     network.feed_forward(input);
 
-    if let Err(error) = render::run(&network, input) {
+    if let Err(error) = render::run(&network, input, &character_vector) {
         eprintln!("Renderer exited with an error: {error}");
     }
 }
@@ -30,8 +30,8 @@ fn main() {
 fn run_network_demo() {
     let data = get_data("data/tinystories_sample.txt");
     let character_set = get_character_set(&data);
-    let mut character_vector = character_set.iter().collect::<Vec<_>>();
-    character_vector.sort();
+    let mut character_vector = character_set.iter().copied().collect::<Vec<_>>();
+    character_vector.sort_unstable();
     // set up map from character to one-hot input vector
     let one_hot_length = character_vector.len();
     let one_hot_map = get_one_hot_map(&character_vector);
@@ -41,7 +41,7 @@ fn run_network_demo() {
     // network.print_diagram(character_vector.len());
     println!("\n");
     for character in character_vector.iter() {
-        let input = one_hot_map.get(&character).unwrap().as_slice();
+        let input = one_hot_map.get(character).unwrap().as_slice();
         // println!("Input: {:?}", input);
         let mut output = network.feed_forward(input);
         // convert output to a probability distribution
@@ -60,7 +60,7 @@ fn run_network_demo() {
         // this is wrong, don't have a target, need to set up training first
         let loss = one_hot_cross_entropy(output[max_index]);
 
-        let predicted_char = *character_vector[max_index];
+        let predicted_char = character_vector[max_index];
         println!("{} -> ({:?})", character, predicted_char);
     }
     // println!("Prediction: {:?}", prediction);
@@ -81,12 +81,11 @@ fn get_data(file_path: &str) -> String {
     fs::read_to_string(file_path).expect("Should have been able to read the file")
 }
 
-fn get_one_hot_map(character_vector: &Vec<&char>) -> HashMap<char, Vec<f32>> {
+fn get_one_hot_map(character_vector: &[char]) -> HashMap<char, Vec<f32>> {
     let mut one_hot_map: HashMap<char, Vec<f32>> = HashMap::new();
-    for (i, c) in character_vector.iter().enumerate() {
-        let character = *c;
-        one_hot_map.insert(*character, vec![0.0; character_vector.len()]);
-        one_hot_map.get_mut(c).unwrap()[i] = 1.0;
+    for (i, character) in character_vector.iter().copied().enumerate() {
+        one_hot_map.insert(character, vec![0.0; character_vector.len()]);
+        one_hot_map.get_mut(&character).unwrap()[i] = 1.0;
     }
     return one_hot_map;
 }

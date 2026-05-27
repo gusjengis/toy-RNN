@@ -6,6 +6,8 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{network::Network, neuron::Neuron};
 
+use super::text::{TextLabel, TextRenderer};
+
 type RenderResult<T> = Result<T, Box<dyn Error>>;
 
 const BASE_LAYER_SPACING: f32 = 340.0;
@@ -13,10 +15,17 @@ const CONNECTION_SPACING_SCALE: f32 = 18.0;
 const NEURON_SPACING: f32 = 92.0;
 const NEURON_RADIUS: f32 = 28.0;
 const INPUT_HALF_SIZE: f32 = 26.0;
+const TEXT_LABEL_GAP: f32 = 14.0;
+const TEXT_LABEL_FONT_SIZE: f32 = 15.0;
+const TEXT_VALUE_FONT_SIZE: f32 = 10.5;
+const TEXT_SUMMARY_FONT_SIZE: f32 = 18.0;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 8.0;
 const MIN_CONNECTION_THICKNESS: f32 = 1.0;
 const MAX_CONNECTION_THICKNESS: f32 = 7.0;
+const TEXT_PRIMARY_COLOR: [f32; 4] = [0.95, 0.97, 1.0, 1.0];
+const TEXT_MUTED_COLOR: [f32; 4] = [0.62, 0.68, 0.80, 1.0];
+const TEXT_ACCENT_COLOR: [f32; 4] = [1.0, 0.78, 0.36, 1.0];
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -198,6 +207,7 @@ pub struct GpuState {
     connection_pipeline: wgpu::RenderPipeline,
     connection_buffer: wgpu::Buffer,
     connection_count: u32,
+    text_renderer: TextRenderer,
     camera: Camera,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -210,6 +220,7 @@ impl GpuState {
         size: PhysicalSize<u32>,
         network: &Network,
         inputs: &[f32],
+        character_labels: &[char],
     ) -> RenderResult<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -324,6 +335,14 @@ impl GpuState {
             contents: bytemuck::cast_slice(&connection_instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+        let text_labels = build_text_labels(network, inputs, character_labels);
+        let text_renderer = TextRenderer::new(
+            &device,
+            &queue,
+            config.format,
+            &camera_bind_group_layout,
+            &text_labels,
+        )?;
         let clear_color = wgpu::Color {
             r: 0.018,
             g: 0.02,
@@ -348,6 +367,7 @@ impl GpuState {
             connection_pipeline,
             connection_buffer,
             connection_count: connection_instances.len() as u32,
+            text_renderer,
             camera,
             camera_buffer,
             camera_bind_group,
@@ -420,6 +440,9 @@ impl GpuState {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.neuron_buffer.slice(..));
             render_pass.draw(0..6, 0..self.neuron_count);
+
+            self.text_renderer
+                .render(&mut render_pass, &self.camera_bind_group);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -526,6 +549,125 @@ fn build_connection_instances(network: &Network, input_count: usize) -> Vec<Conn
     }
 
     instances
+}
+
+fn build_text_labels(
+    network: &Network,
+    inputs: &[f32],
+    character_labels: &[char],
+) -> Vec<TextLabel> {
+    let layers = network.neuron_layers().collect::<Vec<_>>();
+    let layer_x_positions = layer_x_positions(inputs.len(), &layers);
+    let mut labels = Vec::new();
+
+    if layer_x_positions.is_empty() {
+        return labels;
+    }
+
+    let input_x = layer_x_positions[0];
+    for (input_index, input) in inputs.iter().enumerate() {
+        let y = -centered_position(input_index, inputs.len(), NEURON_SPACING);
+        let label = character_labels
+            .get(input_index)
+            .map(|character| character_label(*character))
+            .unwrap_or_else(|| format!("x{input_index}"));
+        let label_color = if *input > 0.5 {
+            TEXT_ACCENT_COLOR
+        } else {
+            TEXT_MUTED_COLOR
+        };
+
+        labels.push(TextLabel::right(
+            label,
+            [input_x - INPUT_HALF_SIZE - TEXT_LABEL_GAP, y],
+            TEXT_LABEL_FONT_SIZE,
+            label_color,
+        ));
+        labels.push(TextLabel::left(
+            format_value(*input),
+            [input_x + INPUT_HALF_SIZE + TEXT_LABEL_GAP, y],
+            TEXT_VALUE_FONT_SIZE,
+            TEXT_PRIMARY_COLOR,
+        ));
+    }
+
+    for (layer_index, layer) in layers.iter().enumerate() {
+        let x = layer_x_positions[layer_index + 1];
+        let is_output_layer = layer_index == layers.len().saturating_sub(1);
+
+        for (neuron_index, neuron) in layer.iter().enumerate() {
+            let y = -centered_position(neuron_index, layer.len(), NEURON_SPACING);
+            labels.push(TextLabel::center(
+                format_value(neuron.output),
+                [x, y],
+                TEXT_VALUE_FONT_SIZE,
+                TEXT_PRIMARY_COLOR,
+            ));
+
+            if is_output_layer {
+                let label = character_labels
+                    .get(neuron_index)
+                    .map(|character| character_label(*character))
+                    .unwrap_or_else(|| format!("y{neuron_index}"));
+                labels.push(TextLabel::left(
+                    label,
+                    [x + NEURON_RADIUS + TEXT_LABEL_GAP, y],
+                    TEXT_LABEL_FONT_SIZE,
+                    TEXT_MUTED_COLOR,
+                ));
+            }
+        }
+    }
+
+    if let Some(output_layer) = layers.last() {
+        if let Some((prediction_index, _)) = output_layer
+            .iter()
+            .enumerate()
+            .max_by(|(_, left), (_, right)| left.output.total_cmp(&right.output))
+        {
+            let output_x = layer_x_positions[layer_x_positions.len() - 1];
+            let top_y = -centered_position(0, output_layer.len(), NEURON_SPACING)
+                + NEURON_RADIUS
+                + TEXT_SUMMARY_FONT_SIZE
+                + TEXT_LABEL_GAP;
+            let prediction = character_labels
+                .get(prediction_index)
+                .map(|character| character_label(*character))
+                .unwrap_or_else(|| format!("y{prediction_index}"));
+
+            labels.push(TextLabel::center(
+                format!("Predicted: {prediction}"),
+                [output_x, top_y],
+                TEXT_SUMMARY_FONT_SIZE,
+                TEXT_ACCENT_COLOR,
+            ));
+        }
+    }
+
+    labels
+}
+
+fn character_label(character: char) -> String {
+    match character {
+        ' ' => "space".to_string(),
+        '\n' => "\\n".to_string(),
+        '\r' => "\\r".to_string(),
+        '\t' => "\\t".to_string(),
+        character if character.is_ascii_graphic() => character.to_string(),
+        character if character.is_ascii() => format!("U+{:02X}", character as u32),
+        character => format!("U+{:04X}", character as u32),
+    }
+}
+
+fn format_value(value: f32) -> String {
+    let magnitude = value.abs();
+    if magnitude >= 100.0 {
+        format!("{value:.0}")
+    } else if magnitude >= 10.0 {
+        format!("{value:.1}")
+    } else {
+        format!("{value:.2}")
+    }
 }
 
 fn connection_instance(start: [f32; 2], end: [f32; 2], weight: f32) -> ConnectionInstance {

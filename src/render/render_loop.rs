@@ -14,6 +14,7 @@ use super::{pipeline::GpuState, window::AppWindow};
 struct NetworkViewer<'network> {
     network: &'network Network,
     inputs: &'network [f32],
+    character_labels: &'network [char],
     window: Option<AppWindow>,
     gpu: Option<GpuState>,
     is_panning: bool,
@@ -21,10 +22,15 @@ struct NetworkViewer<'network> {
 }
 
 impl<'network> NetworkViewer<'network> {
-    fn new(network: &'network Network, inputs: &'network [f32]) -> Self {
+    fn new(
+        network: &'network Network,
+        inputs: &'network [f32],
+        character_labels: &'network [char],
+    ) -> Self {
         Self {
             network,
             inputs,
+            character_labels,
             window: None,
             gpu: None,
             is_panning: false,
@@ -53,6 +59,7 @@ impl ApplicationHandler for NetworkViewer<'_> {
             window.size,
             self.network,
             self.inputs,
+            self.character_labels,
         )) {
             Ok(gpu) => gpu,
             Err(error) => {
@@ -152,10 +159,14 @@ impl ApplicationHandler for NetworkViewer<'_> {
     }
 }
 
-pub fn run(network: &Network, inputs: &[f32]) -> Result<(), winit::error::EventLoopError> {
+pub fn run(
+    network: &Network,
+    inputs: &[f32],
+    character_labels: &[char],
+) -> Result<(), winit::error::EventLoopError> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = NetworkViewer::new(network, inputs);
+    let mut app = NetworkViewer::new(network, inputs, character_labels);
     event_loop.run_app(&mut app)
 }
