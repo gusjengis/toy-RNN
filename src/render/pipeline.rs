@@ -664,14 +664,25 @@ fn build_text_labels(
         ));
     }
 
+    let output_percentages = output_layer
+        .iter()
+        .map(|neuron| neuron.output)
+        .collect::<Vec<_>>();
+    let output_percentages = softmax(&output_percentages);
+
     for (layer_index, layer) in layers.iter().enumerate() {
         let x = layer_x_positions[layer_index + 1];
         let is_output_layer = layer_index == layers.len().saturating_sub(1);
 
         for (neuron_index, neuron) in layer.iter().enumerate() {
             let y = -centered_position(neuron_index, layer.len(), NEURON_SPACING);
+            let value = if is_output_layer {
+                format_percent(output_percentages[neuron_index])
+            } else {
+                format_value(neuron.output)
+            };
             labels.push(TextLabel::center(
-                format_value(neuron.output),
+                value,
                 [x, y],
                 TEXT_VALUE_FONT_SIZE,
                 TEXT_PRIMARY_COLOR,
@@ -750,6 +761,29 @@ fn format_value(value: f32) -> String {
     } else {
         format!("{value:.2}")
     }
+}
+
+fn format_percent(value: f32) -> String {
+    format!("{:.1}%", value * 100.0)
+}
+
+fn softmax(values: &[f32]) -> Vec<f32> {
+    if values.is_empty() {
+        return Vec::new();
+    }
+
+    let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let exp_values = values
+        .iter()
+        .map(|value| (*value - max).exp())
+        .collect::<Vec<_>>();
+    let sum = exp_values.iter().sum::<f32>();
+
+    if sum == 0.0 {
+        return vec![0.0; values.len()];
+    }
+
+    exp_values.iter().map(|value| value / sum).collect()
 }
 
 fn connection_instance(

@@ -117,8 +117,8 @@ fn softmax(x: &[f32]) -> Vec<f32> {
     return exp_x;
 }
 
-fn one_hot_cross_entropy(target_output: f32) -> f32 {
-    -1.0 * target_output.ln()
+fn one_hot_cross_entropy(output: f32) -> f32 {
+    -1.0 * output.ln()
 }
 
 fn cross_entropy(output: &[f32], target: &[f32]) -> f32 {
