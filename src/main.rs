@@ -1,5 +1,6 @@
 mod network;
 mod neuron;
+mod render;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -8,6 +9,13 @@ use std::{
 use crate::network::Network;
 
 fn main() {
+    if let Err(error) = render::run() {
+        eprintln!("Renderer exited with an error: {error}");
+    }
+}
+
+#[allow(dead_code)]
+fn run_network_demo() {
     let data = get_data("data/tinystories_sample.txt");
     let character_set = get_character_set(&data);
     let mut character_vector = character_set.iter().collect::<Vec<_>>();
