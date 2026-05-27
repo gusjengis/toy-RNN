@@ -19,6 +19,8 @@ const TEXT_LABEL_GAP: f32 = 14.0;
 const TEXT_LABEL_FONT_SIZE: f32 = 15.0;
 const TEXT_VALUE_FONT_SIZE: f32 = 10.5;
 const TEXT_SUMMARY_FONT_SIZE: f32 = 18.0;
+const HUGE_CHARACTER_COLUMN_HEIGHT_SCALE: f32 = 0.5;
+const HUGE_CHARACTER_SIDE_GAP: f32 = 220.0;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 8.0;
 const MIN_CONNECTION_THICKNESS: f32 = 1.0;
@@ -611,7 +613,31 @@ fn build_text_labels(
         return labels;
     }
 
+    let output_layer = layers.last().copied().unwrap_or(&[]);
+    let column_height =
+        centered_column_height(inputs.len()).max(centered_column_height(output_layer.len()));
+    let huge_font_size = (column_height * HUGE_CHARACTER_COLUMN_HEIGHT_SCALE).max(96.0);
+    let side_offset = huge_font_size * 0.55 + HUGE_CHARACTER_SIDE_GAP;
+
     let input_x = layer_x_positions[0];
+    if let Some(input_index) = inputs
+        .iter()
+        .enumerate()
+        .max_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map(|(index, _)| index)
+    {
+        let input_character = character_labels
+            .get(input_index)
+            .map(|character| character_label(*character))
+            .unwrap_or_else(|| format!("x{input_index}"));
+        labels.push(TextLabel::center(
+            input_character,
+            [input_x - side_offset, 0.0],
+            huge_font_size,
+            TEXT_ACCENT_COLOR,
+        ));
+    }
+
     for (input_index, input) in inputs.iter().enumerate() {
         let y = -centered_position(input_index, inputs.len(), NEURON_SPACING);
         let label = character_labels
@@ -666,12 +692,13 @@ fn build_text_labels(
         }
     }
 
-    if let Some(output_layer) = layers.last() {
+    if !output_layer.is_empty() {
         if let Some((prediction_index, _)) = output_layer
             .iter()
             .enumerate()
             .max_by(|(_, left), (_, right)| left.output.total_cmp(&right.output))
         {
+            let has_output = output_layer.iter().any(|neuron| neuron.output != 0.0);
             let output_x = layer_x_positions[layer_x_positions.len() - 1];
             let top_y = -centered_position(0, output_layer.len(), NEURON_SPACING)
                 + NEURON_RADIUS
@@ -688,6 +715,14 @@ fn build_text_labels(
                 TEXT_SUMMARY_FONT_SIZE,
                 TEXT_ACCENT_COLOR,
             ));
+            if has_output {
+                labels.push(TextLabel::center(
+                    prediction,
+                    [output_x + side_offset, 0.0],
+                    huge_font_size,
+                    TEXT_ACCENT_COLOR,
+                ));
+            }
         }
     }
 
@@ -768,6 +803,14 @@ fn centered_position(index: usize, count: usize, spacing: f32) -> f32 {
     }
 
     (index as f32 - (count as f32 - 1.0) * 0.5) * spacing
+}
+
+fn centered_column_height(count: usize) -> f32 {
+    if count <= 1 {
+        NEURON_SPACING
+    } else {
+        (count as f32 - 1.0) * NEURON_SPACING
+    }
 }
 
 fn create_neuron_pipeline(

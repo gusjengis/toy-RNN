@@ -9,7 +9,8 @@ use std::{
 use crate::network::Network;
 
 fn main() {
-    let data = get_data("data/tinystories_sample.txt");
+    let mut data = get_data("data/tinystories_sample.txt");
+    data = clean_data(&data);
     let character_set = get_character_set(&data);
     let mut character_vector = character_set.into_iter().collect::<Vec<_>>();
     character_vector.sort_unstable();
@@ -19,11 +20,19 @@ fn main() {
         .get(&character_vector[0])
         .expect("character vector should contain at least one character")
         .clone();
-    let network = Network::new(one_hot_length, vec![100, 100, 100, 100], one_hot_length);
+    let network = Network::new(
+        one_hot_length,
+        vec![10, 13, 16, 19, 19, 16, 13, 10],
+        one_hot_length,
+    );
 
     if let Err(error) = render::run(network, input, character_vector) {
         eprintln!("Renderer exited with an error: {error}");
     }
+}
+fn clean_data(data: &str) -> String {
+    // remove all unicode characters
+    data.chars().filter(|c| c.is_ascii()).collect()
 }
 
 #[allow(dead_code)]

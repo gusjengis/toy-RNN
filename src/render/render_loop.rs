@@ -45,6 +45,10 @@ impl NetworkViewer {
     }
 
     fn advance_animation(&mut self) {
+        if self.animation_step > self.network.layer_count() {
+            return;
+        }
+
         if self.animation_step == 0 {
             self.network.clear_outputs();
         } else {
@@ -52,11 +56,14 @@ impl NetworkViewer {
                 .compute_layer(self.animation_step - 1, &self.inputs);
         }
 
-        let step_count = self.network.layer_count() + 1;
-        self.animation_step = (self.animation_step + 1) % step_count;
+        self.animation_step += 1;
     }
 
     fn tick_animation(&mut self) {
+        if self.animation_step > self.network.layer_count() {
+            return;
+        }
+
         if self.frames_until_next_step == 0 {
             self.advance_animation();
             self.frames_until_next_step = self.frames_per_animation_step.saturating_sub(1);
