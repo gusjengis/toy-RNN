@@ -19,8 +19,9 @@ const TEXT_LABEL_GAP: f32 = 14.0;
 const TEXT_LABEL_FONT_SIZE: f32 = 15.0;
 const TEXT_VALUE_FONT_SIZE: f32 = 10.5;
 const TEXT_SUMMARY_FONT_SIZE: f32 = 18.0;
-const HUGE_CHARACTER_COLUMN_HEIGHT_SCALE: f32 = 0.5;
+const HUGE_CHARACTER_COLUMN_HEIGHT_SCALE: f32 = 0.1667;
 const HUGE_CHARACTER_SIDE_GAP: f32 = 220.0;
+const HUGE_CHARACTER_LINE_SPACING: f32 = 1.08;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 8.0;
 const MIN_CONNECTION_THICKNESS: f32 = 1.0;
@@ -617,9 +618,8 @@ fn build_text_labels(
     let column_height =
         centered_column_height(inputs.len()).max(centered_column_height(output_layer.len()));
     let huge_font_size = (column_height * HUGE_CHARACTER_COLUMN_HEIGHT_SCALE).max(96.0);
-    let side_offset = huge_font_size * 0.55 + HUGE_CHARACTER_SIDE_GAP;
-
     let input_x = layer_x_positions[0];
+    let input_text_right_edge = input_x - INPUT_HALF_SIZE - HUGE_CHARACTER_SIDE_GAP;
     if let Some(input_index) = inputs
         .iter()
         .enumerate()
@@ -630,9 +630,9 @@ fn build_text_labels(
             .get(input_index)
             .map(|character| character_label(*character))
             .unwrap_or_else(|| format!("x{input_index}"));
-        labels.push(TextLabel::center(
+        labels.push(TextLabel::right(
             input_character,
-            [input_x - side_offset, 0.0],
+            [input_text_right_edge, 0.0],
             huge_font_size,
             TEXT_ACCENT_COLOR,
         ));
@@ -711,6 +711,7 @@ fn build_text_labels(
         {
             let has_output = output_layer.iter().any(|neuron| neuron.output != 0.0);
             let output_x = layer_x_positions[layer_x_positions.len() - 1];
+            let output_text_left_edge = output_x + NEURON_RADIUS + HUGE_CHARACTER_SIDE_GAP;
             let top_y = -centered_position(0, output_layer.len(), NEURON_SPACING)
                 + NEURON_RADIUS
                 + TEXT_SUMMARY_FONT_SIZE
@@ -727,12 +728,37 @@ fn build_text_labels(
                 TEXT_ACCENT_COLOR,
             ));
             if has_output {
-                labels.push(TextLabel::center(
-                    prediction,
-                    [output_x + side_offset, 0.0],
-                    huge_font_size,
-                    TEXT_ACCENT_COLOR,
-                ));
+                let mut ranked_predictions = output_percentages
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .collect::<Vec<_>>();
+                ranked_predictions.sort_by(|(_, left), (_, right)| right.total_cmp(left));
+
+                for (rank, (prediction_index, probability)) in
+                    ranked_predictions.into_iter().take(3).enumerate()
+                {
+                    let prediction = character_labels
+                        .get(prediction_index)
+                        .map(|character| character_label(*character))
+                        .unwrap_or_else(|| format!("y{prediction_index}"));
+                    let mut color = TEXT_ACCENT_COLOR;
+                    color[3] = match rank {
+                        0 => 1.0,
+                        1 => 0.62,
+                        _ => 0.38,
+                    };
+
+                    labels.push(TextLabel::left(
+                        format!("{} ({})", prediction, format_percent(probability)),
+                        [
+                            output_text_left_edge,
+                            -(rank as f32) * huge_font_size * HUGE_CHARACTER_LINE_SPACING,
+                        ],
+                        huge_font_size,
+                        color,
+                    ));
+                }
             }
         }
     }
