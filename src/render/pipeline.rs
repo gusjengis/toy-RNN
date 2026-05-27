@@ -4,15 +4,18 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 use winit::{dpi::PhysicalSize, window::Window};
 
-use crate::network::Network;
+use crate::{network::Network, neuron::Neuron};
 
 type RenderResult<T> = Result<T, Box<dyn Error>>;
 
-const LAYER_SPACING: f32 = 260.0;
+const BASE_LAYER_SPACING: f32 = 220.0;
+const CONNECTION_SPACING_SCALE: f32 = 12.0;
 const NEURON_SPACING: f32 = 92.0;
 const NEURON_RADIUS: f32 = 28.0;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 8.0;
+const MIN_CONNECTION_THICKNESS: f32 = 1.0;
+const MAX_CONNECTION_THICKNESS: f32 = 7.0;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -41,6 +44,47 @@ impl NeuronInstance {
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 2,
+                    format: wgpu::VertexFormat::Float32,
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ConnectionInstance {
+    start: [f32; 2],
+    end: [f32; 2],
+    thickness: f32,
+    weight: f32,
+}
+
+impl ConnectionInstance {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<ConnectionInstance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 4]>() + std::mem::size_of::<f32>())
+                        as wgpu::BufferAddress,
+                    shader_location: 3,
                     format: wgpu::VertexFormat::Float32,
                 },
             ],
@@ -110,9 +154,12 @@ pub struct GpuState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
-    render_pipeline: wgpu::RenderPipeline,
-    instance_buffer: wgpu::Buffer,
-    instance_count: u32,
+    neuron_pipeline: wgpu::RenderPipeline,
+    neuron_buffer: wgpu::Buffer,
+    neuron_count: u32,
+    connection_pipeline: wgpu::RenderPipeline,
+    connection_buffer: wgpu::Buffer,
+    connection_count: u32,
     camera: Camera,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -214,12 +261,20 @@ impl GpuState {
             }],
         });
 
-        let render_pipeline =
+        let neuron_pipeline =
             create_neuron_pipeline(&device, config.format, &camera_bind_group_layout);
         let neuron_instances = build_neuron_instances(network);
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let neuron_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Neuron Instance Buffer"),
             contents: bytemuck::cast_slice(&neuron_instances),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        let connection_pipeline =
+            create_connection_pipeline(&device, config.format, &camera_bind_group_layout);
+        let connection_instances = build_connection_instances(network);
+        let connection_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Connection Instance Buffer"),
+            contents: bytemuck::cast_slice(&connection_instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         let clear_color = wgpu::Color {
@@ -237,9 +292,12 @@ impl GpuState {
             queue,
             config,
             size,
-            render_pipeline,
-            instance_buffer,
-            instance_count: neuron_instances.len() as u32,
+            neuron_pipeline,
+            neuron_buffer,
+            neuron_count: neuron_instances.len() as u32,
+            connection_pipeline,
+            connection_buffer,
+            connection_count: connection_instances.len() as u32,
             camera,
             camera_buffer,
             camera_bind_group,
@@ -298,10 +356,15 @@ impl GpuState {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_pipeline(&self.connection_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-            render_pass.draw(0..6, 0..self.instance_count);
+            render_pass.set_vertex_buffer(0, self.connection_buffer.slice(..));
+            render_pass.draw(0..6, 0..self.connection_count);
+
+            render_pass.set_pipeline(&self.neuron_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.neuron_buffer.slice(..));
+            render_pass.draw(0..6, 0..self.neuron_count);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -321,11 +384,11 @@ impl GpuState {
 
 fn build_neuron_instances(network: &Network) -> Vec<NeuronInstance> {
     let layers = network.neuron_layers().collect::<Vec<_>>();
-    let layer_count = layers.len();
+    let layer_x_positions = layer_x_positions(&layers);
     let mut instances = Vec::new();
 
     for (layer_index, layer) in layers.iter().enumerate() {
-        let x = centered_position(layer_index, layer_count, LAYER_SPACING);
+        let x = layer_x_positions[layer_index];
         for (neuron_index, neuron) in layer.iter().enumerate() {
             let y = -centered_position(neuron_index, layer.len(), NEURON_SPACING);
             instances.push(NeuronInstance {
@@ -337,6 +400,67 @@ fn build_neuron_instances(network: &Network) -> Vec<NeuronInstance> {
     }
 
     instances
+}
+
+fn build_connection_instances(network: &Network) -> Vec<ConnectionInstance> {
+    let layers = network.neuron_layers().collect::<Vec<_>>();
+    let layer_count = layers.len();
+    let layer_x_positions = layer_x_positions(&layers);
+    let mut instances = Vec::new();
+
+    for layer_index in 1..layer_count {
+        let previous_layer = layers[layer_index - 1];
+        let current_layer = layers[layer_index];
+        let start_x = layer_x_positions[layer_index - 1];
+        let end_x = layer_x_positions[layer_index];
+
+        for (to_index, to_neuron) in current_layer.iter().enumerate() {
+            let end_y = -centered_position(to_index, current_layer.len(), NEURON_SPACING);
+
+            for (from_index, weight) in to_neuron
+                .weights()
+                .iter()
+                .take(previous_layer.len())
+                .enumerate()
+            {
+                let start_y = -centered_position(from_index, previous_layer.len(), NEURON_SPACING);
+                let magnitude = weight.abs().min(1.0);
+                let thickness = MIN_CONNECTION_THICKNESS
+                    + magnitude * (MAX_CONNECTION_THICKNESS - MIN_CONNECTION_THICKNESS);
+
+                instances.push(ConnectionInstance {
+                    start: [start_x + NEURON_RADIUS, start_y],
+                    end: [end_x - NEURON_RADIUS, end_y],
+                    thickness,
+                    weight: *weight,
+                });
+            }
+        }
+    }
+
+    instances
+}
+
+fn layer_x_positions(layers: &[&[Neuron]]) -> Vec<f32> {
+    if layers.is_empty() {
+        return Vec::new();
+    }
+
+    let mut positions = Vec::with_capacity(layers.len());
+    positions.push(0.0);
+
+    for layer_index in 1..layers.len() {
+        let connection_count = layers[layer_index - 1].len() * layers[layer_index].len();
+        let gap = BASE_LAYER_SPACING + (connection_count as f32).sqrt() * CONNECTION_SPACING_SCALE;
+        positions.push(positions[layer_index - 1] + gap);
+    }
+
+    let midpoint = (positions[0] + positions[positions.len() - 1]) * 0.5;
+    for position in positions.iter_mut() {
+        *position -= midpoint;
+    }
+
+    positions
 }
 
 fn centered_position(index: usize, count: usize, spacing: f32) -> f32 {
@@ -370,6 +494,57 @@ fn create_neuron_pipeline(
             module: &shader,
             entry_point: Some("vs_main"),
             buffers: &[NeuronInstance::desc()],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: surface_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
+fn create_connection_pipeline(
+    device: &wgpu::Device,
+    surface_format: wgpu::TextureFormat,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Connection Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/connection.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Connection Pipeline Layout"),
+        bind_group_layouts: &[camera_bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Connection Render Pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[ConnectionInstance::desc()],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {

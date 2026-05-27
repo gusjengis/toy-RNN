@@ -26,6 +26,10 @@ impl Neuron {
         self.output = self.activation_function(acc);
     }
 
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+
     fn activation_function(&self, x: f32) -> f32 {
         match self.activation_function {
             ActivationFunction::ReLU => ReLU(x),
