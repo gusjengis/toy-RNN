@@ -2,6 +2,8 @@ pub mod pipeline;
 pub mod render_loop;
 pub mod window;
 
-pub fn run() -> Result<(), winit::error::EventLoopError> {
-    render_loop::run()
+use crate::network::Network;
+
+pub fn run(network: &Network) -> Result<(), winit::error::EventLoopError> {
+    render_loop::run(network)
 }

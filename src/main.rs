@@ -9,7 +9,12 @@ use std::{
 use crate::network::Network;
 
 fn main() {
-    if let Err(error) = render::run() {
+    let data = get_data("data/tinystories_sample.txt");
+    let character_set = get_character_set(&data);
+    let one_hot_length = character_set.len();
+    let network = Network::new(one_hot_length, vec![10, 10, 10, 10], one_hot_length);
+
+    if let Err(error) = render::run(&network) {
         eprintln!("Renderer exited with an error: {error}");
     }
 }

@@ -46,6 +46,13 @@ impl Network {
         return self.output_layer.iter().map(|n| n.output).collect();
     }
 
+    pub fn neuron_layers(&self) -> impl Iterator<Item = &[Neuron]> {
+        self.hidden_layers
+            .iter()
+            .map(Vec::as_slice)
+            .chain(std::iter::once(self.output_layer.as_slice()))
+    }
+
     pub fn print_diagram(&self, input_size: usize) {
         println!("Network");
         println!("=======");

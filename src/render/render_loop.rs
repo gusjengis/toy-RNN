@@ -1,20 +1,37 @@
 use wgpu::SurfaceError;
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    dpi::PhysicalPosition,
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::WindowId,
 };
 
+use crate::network::Network;
+
 use super::{pipeline::GpuState, window::AppWindow};
 
-#[derive(Default)]
-struct TriangleApp {
+struct NetworkViewer<'network> {
+    network: &'network Network,
     window: Option<AppWindow>,
     gpu: Option<GpuState>,
+    is_panning: bool,
+    last_cursor_position: Option<PhysicalPosition<f64>>,
 }
 
-impl ApplicationHandler for TriangleApp {
+impl<'network> NetworkViewer<'network> {
+    fn new(network: &'network Network) -> Self {
+        Self {
+            network,
+            window: None,
+            gpu: None,
+            is_panning: false,
+            last_cursor_position: None,
+        }
+    }
+}
+
+impl ApplicationHandler for NetworkViewer<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -29,7 +46,8 @@ impl ApplicationHandler for TriangleApp {
             }
         };
 
-        let gpu = match pollster::block_on(GpuState::new(&window.window, window.size)) {
+        let gpu = match pollster::block_on(GpuState::new(&window.window, window.size, self.network))
+        {
             Ok(gpu) => gpu,
             Err(error) => {
                 eprintln!("Failed to initialize GPU renderer: {error}");
@@ -63,6 +81,48 @@ impl ApplicationHandler for TriangleApp {
                     gpu.resize(size);
                 }
             }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.is_panning = state == ElementState::Pressed;
+                if !self.is_panning {
+                    self.last_cursor_position = None;
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                if self.is_panning {
+                    if let (Some(last_position), Some(gpu)) =
+                        (self.last_cursor_position, self.gpu.as_mut())
+                    {
+                        gpu.pan_by_screen_delta(
+                            (position.x - last_position.x) as f32,
+                            (position.y - last_position.y) as f32,
+                        );
+                    }
+                    window.window.request_redraw();
+                }
+                self.last_cursor_position = Some(position);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let scroll_delta = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(position) => position.y as f32 * 0.01,
+                };
+
+                if let Some(gpu) = self.gpu.as_mut() {
+                    let screen_position = self
+                        .last_cursor_position
+                        .map(|position| [position.x as f32, position.y as f32])
+                        .unwrap_or([
+                            window.size.width as f32 * 0.5,
+                            window.size.height as f32 * 0.5,
+                        ]);
+                    gpu.zoom_at_screen_position(scroll_delta, screen_position);
+                    window.window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 let Some(gpu) = self.gpu.as_mut() else {
                     return;
@@ -86,10 +146,10 @@ impl ApplicationHandler for TriangleApp {
     }
 }
 
-pub fn run() -> Result<(), winit::error::EventLoopError> {
+pub fn run(network: &Network) -> Result<(), winit::error::EventLoopError> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = TriangleApp::default();
+    let mut app = NetworkViewer::new(network);
     event_loop.run_app(&mut app)
 }
