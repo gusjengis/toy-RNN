@@ -1,3 +1,4 @@
+mod mnist;
 mod network;
 mod neuron;
 mod render;
@@ -6,33 +7,19 @@ use std::{
     fs,
 };
 
-use crate::network::Network;
+use crate::mnist::*;
 
 fn main() {
-    let mut data = get_data("data/tinystories_sample.txt");
-    data = clean_data(&data);
-    let character_set = get_character_set(&data);
-    let mut character_vector = character_set.into_iter().collect::<Vec<_>>();
-    character_vector.sort_unstable();
-    let one_hot_length = character_vector.len();
-    let one_hot_map = get_one_hot_map(&character_vector);
-    let input = one_hot_map
-        .get(&character_vector[0])
-        .expect("character vector should contain at least one character")
-        .clone();
+    let mut data = load_train_csv();
     let network = Network::new(
-        one_hot_length,
+        PIXEL_COUNT,
         vec![10, 13, 16, 19, 19, 16, 13, 10],
-        one_hot_length,
+        CLASS_COUNT,
     );
 
-    if let Err(error) = render::run(network, input, character_vector) {
+    if let Err(error) = render::run(network, data) {
         eprintln!("Renderer exited with an error: {error}");
     }
-}
-fn clean_data(data: &str) -> String {
-    // remove all unicode characters
-    data.chars().filter(|c| c.is_ascii()).collect()
 }
 
 #[allow(dead_code)]

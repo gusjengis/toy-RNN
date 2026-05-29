@@ -8,7 +8,7 @@ use winit::{
     window::WindowId,
 };
 
-use crate::network::Network;
+use crate::{mnist::MnistDataset, network::Network};
 
 use super::{pipeline::GpuState, window::AppWindow};
 
@@ -17,8 +17,7 @@ const MIN_FRAMES_PER_ANIMATION_STEP: usize = 1;
 
 struct NetworkViewer {
     network: Network,
-    inputs: Vec<f32>,
-    character_labels: Vec<char>,
+    inputs: MnistDataset,
     animation_step: usize,
     frames_per_animation_step: usize,
     frames_until_next_step: usize,
@@ -29,11 +28,10 @@ struct NetworkViewer {
 }
 
 impl NetworkViewer {
-    fn new(network: Network, inputs: Vec<f32>, character_labels: Vec<char>) -> Self {
+    fn new(network: Network, inputs: MnistDataset, character_labels: Vec<char>) -> Self {
         Self {
             network,
             inputs,
-            character_labels,
             animation_step: 0,
             frames_per_animation_step: DEFAULT_FRAMES_PER_ANIMATION_STEP,
             frames_until_next_step: 0,
@@ -249,14 +247,10 @@ impl ApplicationHandler for NetworkViewer {
     }
 }
 
-pub fn run(
-    network: Network,
-    inputs: Vec<f32>,
-    character_labels: Vec<char>,
-) -> Result<(), winit::error::EventLoopError> {
+pub fn run(network: Network, inputs: MnistDataset) -> Result<(), winit::error::EventLoopError> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = NetworkViewer::new(network, inputs, character_labels);
+    let mut app = NetworkViewer::new(network, inputs);
     event_loop.run_app(&mut app)
 }
