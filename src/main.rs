@@ -11,7 +11,7 @@ use crate::mnist::*;
 use crate::network::Network;
 
 fn main() {
-    let data = load_train_csv();
+    let data = load_train();
     let network = Network::new(
         PIXEL_COUNT,
         vec![10, 13, 16, 19, 19, 16, 13, 10],
