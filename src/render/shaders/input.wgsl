@@ -47,12 +47,8 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let border = max(abs(input.local_position.x), abs(input.local_position.y)) > 0.84;
-    let fill_top = -1.0 + input.value * 2.0;
-    let filled = input.local_position.y <= fill_top;
-    let empty_color = vec3<f32>(0.0, 0.0, 0.0);
-    let fill_color = vec3<f32>(0.95, 0.97, 1.0);
+    let body_color = vec3<f32>(input.value, input.value, input.value);
     let border_color = vec3<f32>(0.58, 0.62, 0.70);
-    let body_color = select(empty_color, fill_color, filled);
     let color = select(body_color, border_color, border);
 
     return vec4<f32>(color, 1.0);

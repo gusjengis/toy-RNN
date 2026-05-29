@@ -14,12 +14,15 @@ const BASE_LAYER_SPACING: f32 = 340.0;
 const CONNECTION_SPACING_SCALE: f32 = 18.0;
 const NEURON_SPACING: f32 = 92.0;
 const NEURON_RADIUS: f32 = 28.0;
-const INPUT_HALF_SIZE: f32 = 26.0;
+const INPUT_HALF_SIZE: f32 = 12.0;
+const MNIST_IMAGE_WIDTH: usize = 28;
+const MNIST_IMAGE_HEIGHT: usize = 28;
 const TEXT_LABEL_GAP: f32 = 14.0;
 const TEXT_LABEL_FONT_SIZE: f32 = 15.0;
 const TEXT_VALUE_FONT_SIZE: f32 = 10.5;
 const TEXT_SUMMARY_FONT_SIZE: f32 = 18.0;
 const HUGE_CHARACTER_COLUMN_HEIGHT_SCALE: f32 = 0.1667;
+const PREDICTION_SUMMARY_SCALE: f32 = 0.1;
 const HUGE_CHARACTER_SIDE_GAP: f32 = 220.0;
 const HUGE_CHARACTER_LINE_SPACING: f32 = 1.08;
 const MIN_ZOOM: f32 = 0.1;
@@ -230,7 +233,6 @@ impl GpuState {
         size: PhysicalSize<u32>,
         network: &Network,
         inputs: &[f32],
-        input_label: Option<u8>,
         output_labels: &[char],
     ) -> RenderResult<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -346,7 +348,7 @@ impl GpuState {
             contents: bytemuck::cast_slice(&connection_instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
-        let text_labels = build_text_labels(network, inputs, input_label, output_labels);
+        let text_labels = build_text_labels(network, inputs, output_labels);
         let text_renderer = TextRenderer::new(
             &device,
             &queue,
@@ -414,7 +416,6 @@ impl GpuState {
         &mut self,
         network: &Network,
         inputs: &[f32],
-        input_label: Option<u8>,
         output_labels: &[char],
     ) {
         let neuron_instances = build_neuron_instances(network, inputs.len());
@@ -441,7 +442,7 @@ impl GpuState {
         );
         self.connection_count = connection_instances.len() as u32;
 
-        let text_labels = build_text_labels(network, inputs, input_label, output_labels);
+        let text_labels = build_text_labels(network, inputs, output_labels);
         self.text_renderer
             .replace_labels(&self.device, &text_labels);
     }
@@ -536,10 +537,7 @@ fn build_input_instances(network: &Network, inputs: &[f32]) -> Vec<InputInstance
         .iter()
         .enumerate()
         .map(|(input_index, input)| InputInstance {
-            position: [
-                x,
-                -centered_position(input_index, inputs.len(), NEURON_SPACING),
-            ],
+            position: input_position(input_index, inputs.len(), x),
             half_size: INPUT_HALF_SIZE,
             value: input.clamp(0.0, 1.0),
         })
@@ -561,10 +559,10 @@ fn build_connection_instances(network: &Network, inputs: &[f32]) -> Vec<Connecti
             let end_y = -centered_position(to_index, first_layer.len(), NEURON_SPACING);
 
             for (from_index, weight) in to_neuron.weights().iter().take(input_count).enumerate() {
-                let start_y = -centered_position(from_index, input_count, NEURON_SPACING);
+                let start_position = input_position(from_index, input_count, start_x);
                 let contribution = inputs[from_index] * *weight;
                 instances.push(connection_instance(
-                    [start_x + INPUT_HALF_SIZE, start_y],
+                    [start_position[0] + INPUT_HALF_SIZE, start_position[1]],
                     [end_x - NEURON_RADIUS, end_y],
                     *weight,
                     contribution,
@@ -606,7 +604,6 @@ fn build_connection_instances(network: &Network, inputs: &[f32]) -> Vec<Connecti
 fn build_text_labels(
     network: &Network,
     inputs: &[f32],
-    input_label: Option<u8>,
     output_labels: &[char],
 ) -> Vec<TextLabel> {
     let layers = network.neuron_layers().collect::<Vec<_>>();
@@ -618,41 +615,34 @@ fn build_text_labels(
     }
 
     let output_layer = layers.last().copied().unwrap_or(&[]);
-    let column_height =
-        centered_column_height(inputs.len()).max(centered_column_height(output_layer.len()));
+    let column_height = input_column_height(inputs.len()).max(centered_column_height(output_layer.len()));
     let huge_font_size = (column_height * HUGE_CHARACTER_COLUMN_HEIGHT_SCALE).max(96.0);
+    let prediction_font_size = huge_font_size * PREDICTION_SUMMARY_SCALE;
     let input_x = layer_x_positions[0];
-    let input_text_right_edge = input_x - INPUT_HALF_SIZE - HUGE_CHARACTER_SIDE_GAP;
-    if let Some(input_label) = input_label {
-        labels.push(TextLabel::right(
-            format!("input {input_label}"),
-            [input_text_right_edge, 0.0],
-            huge_font_size,
-            TEXT_ACCENT_COLOR,
-        ));
-    }
 
-    for (input_index, input) in inputs.iter().enumerate() {
-        let y = -centered_position(input_index, inputs.len(), NEURON_SPACING);
-        let label = format!("p{input_index}");
-        let label_color = if *input > 0.5 {
-            TEXT_ACCENT_COLOR
-        } else {
-            TEXT_MUTED_COLOR
-        };
+    if !is_mnist_input(inputs.len()) {
+        for (input_index, input) in inputs.iter().enumerate() {
+            let y = -centered_position(input_index, inputs.len(), NEURON_SPACING);
+            let label = format!("p{input_index}");
+            let label_color = if *input > 0.5 {
+                TEXT_ACCENT_COLOR
+            } else {
+                TEXT_MUTED_COLOR
+            };
 
-        labels.push(TextLabel::right(
-            label,
-            [input_x - INPUT_HALF_SIZE - TEXT_LABEL_GAP, y],
-            TEXT_LABEL_FONT_SIZE,
-            label_color,
-        ));
-        labels.push(TextLabel::left(
-            format_value(*input),
-            [input_x + INPUT_HALF_SIZE + TEXT_LABEL_GAP, y],
-            TEXT_VALUE_FONT_SIZE,
-            TEXT_PRIMARY_COLOR,
-        ));
+            labels.push(TextLabel::right(
+                label,
+                [input_x - INPUT_HALF_SIZE - TEXT_LABEL_GAP, y],
+                TEXT_LABEL_FONT_SIZE,
+                label_color,
+            ));
+            labels.push(TextLabel::left(
+                format_value(*input),
+                [input_x + INPUT_HALF_SIZE + TEXT_LABEL_GAP, y],
+                TEXT_VALUE_FONT_SIZE,
+                TEXT_PRIMARY_COLOR,
+            ));
+        }
     }
 
     let output_percentages = output_layer
@@ -730,9 +720,9 @@ fn build_text_labels(
                         format!("{} ({})", prediction, format_percent(probability)),
                         [
                             output_text_left_edge,
-                            -(rank as f32) * huge_font_size * HUGE_CHARACTER_LINE_SPACING,
+                            -(rank as f32) * prediction_font_size * HUGE_CHARACTER_LINE_SPACING,
                         ],
-                        huge_font_size,
+                        prediction_font_size,
                         color,
                     ));
                 }
@@ -832,6 +822,33 @@ fn layer_x_positions(input_count: usize, layers: &[&[Neuron]]) -> Vec<f32> {
     }
 
     positions
+}
+
+fn input_position(index: usize, input_count: usize, x: f32) -> [f32; 2] {
+    if is_mnist_input(input_count) {
+        let column = index % MNIST_IMAGE_WIDTH;
+        let row = index / MNIST_IMAGE_WIDTH;
+        return [
+            x + centered_position(column, MNIST_IMAGE_WIDTH, INPUT_HALF_SIZE * 2.0),
+            -centered_position(row, MNIST_IMAGE_HEIGHT, INPUT_HALF_SIZE * 2.0),
+        ];
+    }
+
+    [x, -centered_position(index, input_count, NEURON_SPACING)]
+}
+
+fn is_mnist_input(input_count: usize) -> bool {
+    input_count == MNIST_IMAGE_WIDTH * MNIST_IMAGE_HEIGHT
+}
+
+fn input_column_height(input_count: usize) -> f32 {
+    if is_mnist_input(input_count) {
+        centered_position(MNIST_IMAGE_HEIGHT - 1, MNIST_IMAGE_HEIGHT, INPUT_HALF_SIZE * 2.0).abs()
+            * 2.0
+            + INPUT_HALF_SIZE * 2.0
+    } else {
+        centered_column_height(input_count)
+    }
 }
 
 fn centered_position(index: usize, count: usize, spacing: f32) -> f32 {

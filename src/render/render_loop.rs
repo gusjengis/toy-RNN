@@ -19,7 +19,6 @@ struct NetworkViewer {
     network: Network,
     dataset: MnistDataset,
     inputs: Vec<f32>,
-    input_label: Option<u8>,
     output_labels: Vec<char>,
     animation_step: usize,
     frames_per_animation_step: usize,
@@ -37,13 +36,11 @@ impl NetworkViewer {
             .first()
             .map(|number| number.pixels.clone())
             .unwrap_or_default();
-        let input_label = dataset.numbers.first().map(|number| number.label);
 
         Self {
             network,
             dataset,
             inputs,
-            input_label,
             output_labels: ('0'..='9').collect(),
             animation_step: 0,
             frames_per_animation_step: DEFAULT_FRAMES_PER_ANIMATION_STEP,
@@ -113,7 +110,6 @@ impl NetworkViewer {
         let input_index = rand::random_range(0..self.dataset.numbers.len());
         let number = &self.dataset.numbers[input_index];
         self.inputs = number.pixels.clone();
-        self.input_label = Some(number.label);
         self.network.clear_outputs();
         self.animation_step = 0;
         self.frames_until_next_step = 0;
@@ -140,7 +136,6 @@ impl ApplicationHandler for NetworkViewer {
             window.size,
             &self.network,
             &self.inputs,
-            self.input_label,
             &self.output_labels,
         )) {
             Ok(gpu) => gpu,
@@ -245,7 +240,6 @@ impl ApplicationHandler for NetworkViewer {
                 gpu.refresh_network(
                     &self.network,
                     &self.inputs,
-                    self.input_label,
                     &self.output_labels,
                 );
 
