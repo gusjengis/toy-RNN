@@ -17,7 +17,10 @@ const MIN_FRAMES_PER_ANIMATION_STEP: usize = 1;
 
 struct NetworkViewer {
     network: Network,
-    inputs: MnistDataset,
+    dataset: MnistDataset,
+    inputs: Vec<f32>,
+    input_label: Option<u8>,
+    output_labels: Vec<char>,
     animation_step: usize,
     frames_per_animation_step: usize,
     frames_until_next_step: usize,
@@ -28,10 +31,20 @@ struct NetworkViewer {
 }
 
 impl NetworkViewer {
-    fn new(network: Network, inputs: MnistDataset, character_labels: Vec<char>) -> Self {
+    fn new(network: Network, dataset: MnistDataset) -> Self {
+        let inputs = dataset
+            .numbers
+            .first()
+            .map(|number| number.pixels.clone())
+            .unwrap_or_default();
+        let input_label = dataset.numbers.first().map(|number| number.label);
+
         Self {
             network,
+            dataset,
             inputs,
+            input_label,
+            output_labels: ('0'..='9').collect(),
             animation_step: 0,
             frames_per_animation_step: DEFAULT_FRAMES_PER_ANIMATION_STEP,
             frames_until_next_step: 0,
@@ -93,13 +106,14 @@ impl NetworkViewer {
     }
 
     fn reset_with_random_input(&mut self) {
-        if self.inputs.is_empty() {
+        if self.dataset.numbers.is_empty() {
             return;
         }
 
-        self.inputs.fill(0.0);
-        let input_index = rand::random_range(0..self.inputs.len());
-        self.inputs[input_index] = 1.0;
+        let input_index = rand::random_range(0..self.dataset.numbers.len());
+        let number = &self.dataset.numbers[input_index];
+        self.inputs = number.pixels.clone();
+        self.input_label = Some(number.label);
         self.network.clear_outputs();
         self.animation_step = 0;
         self.frames_until_next_step = 0;
@@ -126,7 +140,8 @@ impl ApplicationHandler for NetworkViewer {
             window.size,
             &self.network,
             &self.inputs,
-            &self.character_labels,
+            self.input_label,
+            &self.output_labels,
         )) {
             Ok(gpu) => gpu,
             Err(error) => {
@@ -227,7 +242,12 @@ impl ApplicationHandler for NetworkViewer {
                 let Some(gpu) = self.gpu.as_mut() else {
                     return;
                 };
-                gpu.refresh_network(&self.network, &self.inputs, &self.character_labels);
+                gpu.refresh_network(
+                    &self.network,
+                    &self.inputs,
+                    self.input_label,
+                    &self.output_labels,
+                );
 
                 match gpu.render() {
                     Ok(()) => {}

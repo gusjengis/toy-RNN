@@ -31,11 +31,11 @@ impl MnistDataset {
 }
 
 pub fn load_train_csv() -> MnistDataset {
-    load_mnist_csv("data/processed/csv/mnist_train_normalized.csv")
+    load_mnist_csv("data/csv/mnist_train_normalized.csv")
 }
 
 pub fn load_test_csv() -> MnistDataset {
-    load_mnist_csv("data/processed/csv/mnist_test_normalized.csv")
+    load_mnist_csv("data/csv/mnist_test_normalized.csv")
 }
 
 pub fn load_mnist_csv(path: impl AsRef<Path>) -> MnistDataset {

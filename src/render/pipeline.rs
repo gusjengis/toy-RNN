@@ -230,7 +230,8 @@ impl GpuState {
         size: PhysicalSize<u32>,
         network: &Network,
         inputs: &[f32],
-        character_labels: &[char],
+        input_label: Option<u8>,
+        output_labels: &[char],
     ) -> RenderResult<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -345,7 +346,7 @@ impl GpuState {
             contents: bytemuck::cast_slice(&connection_instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
-        let text_labels = build_text_labels(network, inputs, character_labels);
+        let text_labels = build_text_labels(network, inputs, input_label, output_labels);
         let text_renderer = TextRenderer::new(
             &device,
             &queue,
@@ -413,7 +414,8 @@ impl GpuState {
         &mut self,
         network: &Network,
         inputs: &[f32],
-        character_labels: &[char],
+        input_label: Option<u8>,
+        output_labels: &[char],
     ) {
         let neuron_instances = build_neuron_instances(network, inputs.len());
         self.queue.write_buffer(
@@ -439,7 +441,7 @@ impl GpuState {
         );
         self.connection_count = connection_instances.len() as u32;
 
-        let text_labels = build_text_labels(network, inputs, character_labels);
+        let text_labels = build_text_labels(network, inputs, input_label, output_labels);
         self.text_renderer
             .replace_labels(&self.device, &text_labels);
     }
@@ -604,7 +606,8 @@ fn build_connection_instances(network: &Network, inputs: &[f32]) -> Vec<Connecti
 fn build_text_labels(
     network: &Network,
     inputs: &[f32],
-    character_labels: &[char],
+    input_label: Option<u8>,
+    output_labels: &[char],
 ) -> Vec<TextLabel> {
     let layers = network.neuron_layers().collect::<Vec<_>>();
     let layer_x_positions = layer_x_positions(inputs.len(), &layers);
@@ -620,18 +623,9 @@ fn build_text_labels(
     let huge_font_size = (column_height * HUGE_CHARACTER_COLUMN_HEIGHT_SCALE).max(96.0);
     let input_x = layer_x_positions[0];
     let input_text_right_edge = input_x - INPUT_HALF_SIZE - HUGE_CHARACTER_SIDE_GAP;
-    if let Some(input_index) = inputs
-        .iter()
-        .enumerate()
-        .max_by(|(_, left), (_, right)| left.total_cmp(right))
-        .map(|(index, _)| index)
-    {
-        let input_character = character_labels
-            .get(input_index)
-            .map(|character| character_label(*character))
-            .unwrap_or_else(|| format!("x{input_index}"));
+    if let Some(input_label) = input_label {
         labels.push(TextLabel::right(
-            input_character,
+            format!("input {input_label}"),
             [input_text_right_edge, 0.0],
             huge_font_size,
             TEXT_ACCENT_COLOR,
@@ -640,10 +634,7 @@ fn build_text_labels(
 
     for (input_index, input) in inputs.iter().enumerate() {
         let y = -centered_position(input_index, inputs.len(), NEURON_SPACING);
-        let label = character_labels
-            .get(input_index)
-            .map(|character| character_label(*character))
-            .unwrap_or_else(|| format!("x{input_index}"));
+        let label = format!("p{input_index}");
         let label_color = if *input > 0.5 {
             TEXT_ACCENT_COLOR
         } else {
@@ -689,7 +680,7 @@ fn build_text_labels(
             ));
 
             if is_output_layer {
-                let label = character_labels
+                let label = output_labels
                     .get(neuron_index)
                     .map(|character| character_label(*character))
                     .unwrap_or_else(|| format!("y{neuron_index}"));
@@ -704,7 +695,7 @@ fn build_text_labels(
     }
 
     if !output_layer.is_empty() {
-        if let Some((prediction_index, _)) = output_layer
+        if let Some((_, _)) = output_layer
             .iter()
             .enumerate()
             .max_by(|(_, left), (_, right)| left.output.total_cmp(&right.output))
@@ -724,7 +715,7 @@ fn build_text_labels(
                 for (rank, (prediction_index, probability)) in
                     ranked_predictions.into_iter().take(3).enumerate()
                 {
-                    let prediction = character_labels
+                    let prediction = output_labels
                         .get(prediction_index)
                         .map(|character| character_label(*character))
                         .unwrap_or_else(|| format!("y{prediction_index}"));
