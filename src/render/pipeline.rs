@@ -22,7 +22,7 @@ const TEXT_LABEL_FONT_SIZE: f32 = 15.0;
 const TEXT_VALUE_FONT_SIZE: f32 = 10.5;
 const TEXT_SUMMARY_FONT_SIZE: f32 = 18.0;
 const HUGE_CHARACTER_COLUMN_HEIGHT_SCALE: f32 = 0.1667;
-const PREDICTION_SUMMARY_SCALE: f32 = 0.1;
+const PREDICTION_SUMMARY_SCALE: f32 = 0.6;
 const HUGE_CHARACTER_SIDE_GAP: f32 = 220.0;
 const HUGE_CHARACTER_LINE_SPACING: f32 = 1.08;
 const MIN_ZOOM: f32 = 0.1;
@@ -412,12 +412,7 @@ impl GpuState {
         self.write_camera();
     }
 
-    pub fn refresh_network(
-        &mut self,
-        network: &Network,
-        inputs: &[f32],
-        output_labels: &[char],
-    ) {
+    pub fn refresh_network(&mut self, network: &Network, inputs: &[f32], output_labels: &[char]) {
         let neuron_instances = build_neuron_instances(network, inputs.len());
         self.queue.write_buffer(
             &self.neuron_buffer,
@@ -601,11 +596,7 @@ fn build_connection_instances(network: &Network, inputs: &[f32]) -> Vec<Connecti
     instances
 }
 
-fn build_text_labels(
-    network: &Network,
-    inputs: &[f32],
-    output_labels: &[char],
-) -> Vec<TextLabel> {
+fn build_text_labels(network: &Network, inputs: &[f32], output_labels: &[char]) -> Vec<TextLabel> {
     let layers = network.neuron_layers().collect::<Vec<_>>();
     let layer_x_positions = layer_x_positions(inputs.len(), &layers);
     let mut labels = Vec::new();
@@ -615,7 +606,8 @@ fn build_text_labels(
     }
 
     let output_layer = layers.last().copied().unwrap_or(&[]);
-    let column_height = input_column_height(inputs.len()).max(centered_column_height(output_layer.len()));
+    let column_height =
+        input_column_height(inputs.len()).max(centered_column_height(output_layer.len()));
     let huge_font_size = (column_height * HUGE_CHARACTER_COLUMN_HEIGHT_SCALE).max(96.0);
     let prediction_font_size = huge_font_size * PREDICTION_SUMMARY_SCALE;
     let input_x = layer_x_positions[0];
@@ -702,8 +694,9 @@ fn build_text_labels(
                     .collect::<Vec<_>>();
                 ranked_predictions.sort_by(|(_, left), (_, right)| right.total_cmp(left));
 
+                let prediction_count = ranked_predictions.len();
                 for (rank, (prediction_index, probability)) in
-                    ranked_predictions.into_iter().take(3).enumerate()
+                    ranked_predictions.into_iter().enumerate()
                 {
                     let prediction = output_labels
                         .get(prediction_index)
@@ -720,7 +713,11 @@ fn build_text_labels(
                         format!("{} ({})", prediction, format_percent(probability)),
                         [
                             output_text_left_edge,
-                            -(rank as f32) * prediction_font_size * HUGE_CHARACTER_LINE_SPACING,
+                            -centered_position(
+                                rank,
+                                prediction_count,
+                                prediction_font_size * HUGE_CHARACTER_LINE_SPACING,
+                            ),
                         ],
                         prediction_font_size,
                         color,
@@ -843,7 +840,12 @@ fn is_mnist_input(input_count: usize) -> bool {
 
 fn input_column_height(input_count: usize) -> f32 {
     if is_mnist_input(input_count) {
-        centered_position(MNIST_IMAGE_HEIGHT - 1, MNIST_IMAGE_HEIGHT, INPUT_HALF_SIZE * 2.0).abs()
+        centered_position(
+            MNIST_IMAGE_HEIGHT - 1,
+            MNIST_IMAGE_HEIGHT,
+            INPUT_HALF_SIZE * 2.0,
+        )
+        .abs()
             * 2.0
             + INPUT_HALF_SIZE * 2.0
     } else {
