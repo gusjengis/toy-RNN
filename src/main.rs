@@ -2,6 +2,7 @@ mod mnist;
 mod network;
 mod neuron;
 mod render;
+mod training;
 use std::{
     collections::{HashMap, HashSet},
     fs,
